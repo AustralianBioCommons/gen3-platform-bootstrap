@@ -1,0 +1,73 @@
+name: Deploy bootstrap (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      config_path:
+        description: "Path to the bootstrap JSON config file (relative to the caller repo root)"
+        type: string
+        required: true
+      github_environment:
+        description: "GitHub environment name (for secrets/vars scoping)"
+        type: string
+        required: true
+      aws_region:
+        description: "AWS region to deploy into"
+        type: string
+        required: false
+        default: ap-southeast-2
+      role_to_assume:
+        description: "IAM role ARN to assume via OIDC"
+        type: string
+        required: true
+      stack_selector:
+        description: "CDK stack selector, e.g. --all or a specific stack ID"
+        type: string
+        required: false
+        default: "--all"
+    secrets:
+      FORCE_RUN_TOKEN:
+        description: "Optional token to force re-run of custom resources (pass github.sha)"
+        required: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.github_environment }}
+    concurrency:
+      group: gen3-bootstrap-${{ inputs.github_environment }}
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ inputs.role_to_assume }}
+          aws-region: ${{ inputs.aws_region }}
+
+      - name: Inject account ID into config
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          sed -i "s/__ACCOUNT_ID__/${ACCOUNT_ID}/g" ${{ inputs.config_path }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: CDK synth
+        env:
+          FORCE_RUN_TOKEN: ${{ secrets.FORCE_RUN_TOKEN || github.sha }}
+        run: npx cdk synth -c config=${{ inputs.config_path }}
+
+      - name: CDK deploy
+        env:
+          FORCE_RUN_TOKEN: ${{ secrets.FORCE_RUN_TOKEN || github.sha }}
+        run: |
+          npx cdk deploy ${{ inputs.stack_selector }} \
+            --require-approval=never \
+            -c config=${{ inputs.config_path }}

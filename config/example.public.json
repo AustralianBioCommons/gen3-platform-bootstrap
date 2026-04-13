@@ -1,0 +1,79 @@
+{
+  "project": "sample",
+  "application": "gen3",
+  "owner": "Platform",
+  "naming": {
+    "namePrefix": "sample-gen3",
+    "ssmPrefix": "/platform",
+    "secretPrefix": "platform"
+  },
+  "environments": {
+    "test": {
+      "name": "test",
+      "account": "__ACCOUNT_ID__",
+      "region": "ap-southeast-2"
+    },
+    "prod": {
+      "name": "prod",
+      "account": "__ACCOUNT_ID__",
+      "region": "ap-southeast-2"
+    }
+  },
+  "stages": [
+    {
+      "id": "SampleTestBootstrap",
+      "stageName": "TEST",
+      "envKey": "test",
+      "bootstrap": {
+        "hostname": "commons.sample.org.au",
+        "namespace": "sample",
+        "features": {
+          "metadataG3auto": true,
+          "wtsG3auto": true,
+          "manifestserviceG3auto": true,
+          "auditGen3auto": true,
+          "ssjdispatcherCreds": true,
+          "pelicanserviceG3auto": true,
+          "fenceJwtPrivateKey": true
+        },
+        "secrets": {
+          "dbMasterSecretName": "platform/sample/gen3/test/rds-master"
+        },
+        "replication": {
+          "enabled": false
+        }
+      }
+    },
+    {
+      "id": "SampleProdBootstrap",
+      "stageName": "PROD",
+      "envKey": "prod",
+      "bootstrap": {
+        "hostname": "commons.sample.org.au",
+        "namespace": "sample",
+        "features": {
+          "metadataG3auto": true,
+          "wtsG3auto": true,
+          "manifestserviceG3auto": true,
+          "auditGen3auto": true,
+          "ssjdispatcherCreds": true,
+          "pelicanserviceG3auto": true,
+          "fenceJwtPrivateKey": true
+        },
+        "secrets": {
+          "dbMasterSecretName": "platform/sample/gen3/prod/rds-master"
+        },
+        "replication": {
+          "enabled": true,
+          "backupAccountId": "111122223333",
+          "destUploadsKmsKeyArn": "arn:aws:kms:ap-southeast-2:111122223333:key/REPLACE-ME",
+          "destManifestKmsKeyArn": "arn:aws:kms:ap-southeast-2:111122223333:key/REPLACE-ME",
+          "destPelicanKmsKeyArn": "arn:aws:kms:ap-southeast-2:111122223333:key/REPLACE-ME",
+          "destUploadsBucketArn": "arn:aws:s3:::backup-sample-prod-uploads",
+          "destManifestBucketArn": "arn:aws:s3:::backup-sample-prod-manifest",
+          "destPelicanBucketArn": "arn:aws:s3:::backup-sample-prod-pelican"
+        }
+      }
+    }
+  ]
+}
