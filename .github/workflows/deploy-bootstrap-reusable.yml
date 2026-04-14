@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       config_path:
-        description: "Path to the bootstrap JSON config file (relative to caller repo root)"
+        description: "Path to the bootstrap JSON config file (relative to the caller repo root)"
         type: string
         required: true
       github_environment:
@@ -26,13 +26,13 @@ on:
         required: false
         default: "--all"
       caller_ref:
-        description: "Optional git ref for caller repo"
+        description: "Optional ref of the caller repo to check out"
         type: string
         required: false
         default: ""
     secrets:
       FORCE_RUN_TOKEN:
-        description: "Optional token to force re-run of custom resources"
+        description: "Optional token to force re-run of custom resources (pass github.sha)"
         required: false
 
 permissions:
@@ -44,13 +44,10 @@ jobs:
     runs-on: ubuntu-latest
     environment: ${{ inputs.github_environment }}
     concurrency:
-      group: gen3-bootstrap-${{ github.repository }}-${{ inputs.github_environment }}
+      group: gen3-bootstrap-${{ inputs.github_environment }}
       cancel-in-progress: false
 
     steps:
-      # ----------------------------------------
-      # Checkout caller repo (contains config + bootstrap app)
-      # ----------------------------------------
       - name: Checkout caller repo
         uses: actions/checkout@v6
         with:
@@ -58,66 +55,73 @@ jobs:
           ref: ${{ inputs.caller_ref != '' && inputs.caller_ref || github.ref }}
           path: caller
 
-      # ----------------------------------------
-      # Configure AWS (OIDC)
-      # ----------------------------------------
-      - name: Configure AWS credentials
+      - name: Checkout shared bootstrap repo
+        uses: actions/checkout@v6
+        with:
+          repository: AustralianBioCommons/gen3-platform-bootstrap
+          ref: main
+          path: bootstrap
+
+      - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ inputs.role_to_assume }}
           aws-region: ${{ inputs.aws_region }}
 
-      # ----------------------------------------
-      # Resolve AWS account ID
-      # ----------------------------------------
-      - name: Resolve AWS account ID
+      - name: Resolve AWS account id
         id: aws_identity
         run: |
-          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          echo "account_id=$ACCOUNT_ID" >> "$GITHUB_OUTPUT"
+          echo "account_id=$(aws sts get-caller-identity --query Account --output text)" >> "$GITHUB_OUTPUT"
 
-      # ----------------------------------------
-      # Setup Node
-      # ----------------------------------------
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: 20
-
-      # ----------------------------------------
-      # Inject account ID into config
-      # ----------------------------------------
-      - name: Inject account ID into config
+      - name: Build runtime config
         env:
-          CONFIG: caller/${{ inputs.config_path }}
-          ACCOUNT_ID: ${{ steps.aws_identity.outputs.account_id }}
+          CONFIG_PATH: caller/${{ inputs.config_path }}
+          AWS_ACCOUNT_ID: ${{ steps.aws_identity.outputs.account_id }}
+          AWS_REGION: ${{ inputs.aws_region }}
+          TARGET_ENV: ${{ inputs.github_environment }}
         run: |
-          sed -i "s|__ACCOUNT_ID__|${ACCOUNT_ID}|g" "$CONFIG"
+          node <<'NODE'
+          const fs = require('fs');
 
-      # ----------------------------------------
-      # Install dependencies
-      # ----------------------------------------
+          const config = JSON.parse(fs.readFileSync(process.env.CONFIG_PATH, 'utf8'));
+
+          for (const [key, env] of Object.entries(config.environments || {})) {
+            if (!env.account || env.account === '__ACCOUNT_ID__') {
+              env.account = process.env.AWS_ACCOUNT_ID;
+            }
+            if (!env.region) {
+              env.region = process.env.AWS_REGION;
+            }
+            config.environments[key] = env;
+          }
+
+          config.stages = (config.stages || []).filter(
+            (stage) => stage.envKey === process.env.TARGET_ENV
+          );
+
+          if (config.stages.length === 0) {
+            throw new Error(`No stages found for envKey='${process.env.TARGET_ENV}'`);
+          }
+
+          fs.writeFileSync('bootstrap/config.runtime.json', JSON.stringify(config, null, 2));
+          console.log(`Wrote bootstrap/config.runtime.json with ${config.stages.length} stage(s)`);
+          NODE
+
       - name: Install dependencies
-        working-directory: caller/bootstrap
+        working-directory: bootstrap
         run: npm ci
 
-      # ----------------------------------------
-      # CDK synth
-      # ----------------------------------------
       - name: CDK synth
-        working-directory: caller/bootstrap
+        working-directory: bootstrap
         env:
           FORCE_RUN_TOKEN: ${{ secrets.FORCE_RUN_TOKEN || github.sha }}
-        run: npx cdk synth -c config=../${{ inputs.config_path }}
+        run: npx cdk synth -c config=./config.runtime.json
 
-      # ----------------------------------------
-      # CDK deploy
-      # ----------------------------------------
       - name: CDK deploy
-        working-directory: caller/bootstrap
+        working-directory: bootstrap
         env:
           FORCE_RUN_TOKEN: ${{ secrets.FORCE_RUN_TOKEN || github.sha }}
         run: |
           npx cdk deploy ${{ inputs.stack_selector }} \
             --require-approval never \
-            -c config=../${{ inputs.config_path }}
+            -c config=./config.runtime.json
