@@ -52,7 +52,7 @@ jobs:
       # Checkout caller repo (contains config + bootstrap app)
       # ----------------------------------------
       - name: Checkout caller repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: ${{ github.repository }}
           ref: ${{ inputs.caller_ref != '' && inputs.caller_ref || github.ref }}
@@ -62,7 +62,7 @@ jobs:
       # Configure AWS (OIDC)
       # ----------------------------------------
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ inputs.role_to_assume }}
           aws-region: ${{ inputs.aws_region }}
@@ -80,7 +80,7 @@ jobs:
       # Setup Node
       # ----------------------------------------
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 20
           cache: npm
