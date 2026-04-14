@@ -54,20 +54,25 @@ jobs:
       - name: Inject account ID into config
         run: |
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          sed -i "s/__ACCOUNT_ID__/${ACCOUNT_ID}/g" ${{ inputs.config_path }}
+          CONFIG="${{ inputs.config_path }}"
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          sed -i "s|__ACCOUNT_ID__|${ACCOUNT_ID}|g" "$CONFIG"
 
       - name: Install dependencies
+        working-directory: bootstrap
         run: npm ci
 
       - name: CDK synth
+        working-directory: bootstrap
         env:
           FORCE_RUN_TOKEN: ${{ secrets.FORCE_RUN_TOKEN || github.sha }}
-        run: npx cdk synth -c config=${{ inputs.config_path }}
+        run: npx cdk synth -c config=../${{ inputs.config_path }}
 
       - name: CDK deploy
+        working-directory: bootstrap
         env:
           FORCE_RUN_TOKEN: ${{ secrets.FORCE_RUN_TOKEN || github.sha }}
         run: |
           npx cdk deploy ${{ inputs.stack_selector }} \
             --require-approval=never \
-            -c config=${{ inputs.config_path }}
+            -c config=../${{ inputs.config_path }}
