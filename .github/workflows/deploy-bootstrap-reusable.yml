@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       config_path:
-        description: "Path to the bootstrap JSON config file (relative to the caller repo root)"
+        description: "Path to the bootstrap JSON config file (relative to caller repo root)"
         type: string
         required: true
       github_environment:
@@ -25,9 +25,14 @@ on:
         type: string
         required: false
         default: "--all"
+      caller_ref:
+        description: "Optional git ref for caller repo"
+        type: string
+        required: false
+        default: ""
     secrets:
       FORCE_RUN_TOKEN:
-        description: "Optional token to force re-run of custom resources (pass github.sha)"
+        description: "Optional token to force re-run of custom resources"
         required: false
 
 permissions:
@@ -39,40 +44,82 @@ jobs:
     runs-on: ubuntu-latest
     environment: ${{ inputs.github_environment }}
     concurrency:
-      group: gen3-bootstrap-${{ inputs.github_environment }}
+      group: gen3-bootstrap-${{ github.repository }}-${{ inputs.github_environment }}
       cancel-in-progress: false
 
     steps:
-      - uses: actions/checkout@v6
+      # ----------------------------------------
+      # Checkout caller repo (contains config + bootstrap app)
+      # ----------------------------------------
+      - name: Checkout caller repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ inputs.caller_ref != '' && inputs.caller_ref || github.ref }}
+          path: caller
 
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v6
+      # ----------------------------------------
+      # Configure AWS (OIDC)
+      # ----------------------------------------
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ inputs.role_to_assume }}
           aws-region: ${{ inputs.aws_region }}
 
-      - name: Inject account ID into config
+      # ----------------------------------------
+      # Resolve AWS account ID
+      # ----------------------------------------
+      - name: Resolve AWS account ID
+        id: aws_identity
         run: |
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          CONFIG="${{ inputs.config_path }}"
-          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "account_id=$ACCOUNT_ID" >> "$GITHUB_OUTPUT"
+
+      # ----------------------------------------
+      # Setup Node
+      # ----------------------------------------
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: caller/bootstrap/package-lock.json
+
+      # ----------------------------------------
+      # Inject account ID into config
+      # ----------------------------------------
+      - name: Inject account ID into config
+        env:
+          CONFIG: caller/${{ inputs.config_path }}
+          ACCOUNT_ID: ${{ steps.aws_identity.outputs.account_id }}
+        run: |
           sed -i "s|__ACCOUNT_ID__|${ACCOUNT_ID}|g" "$CONFIG"
 
+      # ----------------------------------------
+      # Install dependencies
+      # ----------------------------------------
       - name: Install dependencies
-        working-directory: bootstrap
+        working-directory: caller/bootstrap
         run: npm ci
 
+      # ----------------------------------------
+      # CDK synth
+      # ----------------------------------------
       - name: CDK synth
-        working-directory: bootstrap
+        working-directory: caller/bootstrap
         env:
           FORCE_RUN_TOKEN: ${{ secrets.FORCE_RUN_TOKEN || github.sha }}
         run: npx cdk synth -c config=../${{ inputs.config_path }}
 
+      # ----------------------------------------
+      # CDK deploy
+      # ----------------------------------------
       - name: CDK deploy
-        working-directory: bootstrap
+        working-directory: caller/bootstrap
         env:
           FORCE_RUN_TOKEN: ${{ secrets.FORCE_RUN_TOKEN || github.sha }}
         run: |
           npx cdk deploy ${{ inputs.stack_selector }} \
-            --require-approval=never \
+            --require-approval never \
             -c config=../${{ inputs.config_path }}
