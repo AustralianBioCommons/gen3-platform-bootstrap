@@ -1,7 +1,7 @@
 import * as cdk from "aws-cdk-lib";
 import * as iam from "aws-cdk-lib/aws-iam";
 import { Construct } from "constructs";
-import { readRequired, readOptional, slug } from "../utils/ssm";
+import { readDeployTime, slug } from "../utils/ssm";
 import { bucketSafeFromHostname } from "../utils/names";
 import { BootstrapStackProps } from "../types";
 
@@ -11,27 +11,25 @@ export class Gen3IamStack extends cdk.Stack {
 
     const project = slug(props.project);
     const envName = slug(props.envTarget.name);
-    const { hostname, namespace } = props.bootstrap;
+    const { hostname, namespace, features } = props.bootstrap;
 
     if (!hostname) throw new Error("Gen3IamStack: bootstrap.hostname is required");
     if (!namespace) throw new Error("Gen3IamStack: bootstrap.namespace is required");
 
-    const base = `/gen3/${project}-${envName}`;
+    const base = `/gen3/${props.envKey}`;
 
-    // ---- Core SSM (required at synth time via lookup)
-    const issuer = readRequired(this, `${base}/oidcIssuer`);
-    const providerArn = readRequired(this, `${base}/oidcProviderArn`);
-    const clusterName = readRequired(this, `${base}/clusterName`);
+    // Deploy-time SSM resolution
+    const issuer = readDeployTime(this, `${base}/oidcIssuer`);
+    const providerArn = readDeployTime(this, `${base}/oidcProviderArn`);
+    const clusterName = readDeployTime(this, `${base}/clusterName`);
 
-    // ---- Optional SSM
-    const uploadsBucketName = readOptional(this, `${base}/s3/uploadsBucketName`);
-    const manifestBucketName = readOptional(this, `${base}/s3/manifestBucketName`);
-    const sqsQueueArn = readOptional(this, `${base}/sqs/ssjdispatcherQueueArn`);
-    const esDomainArn = readOptional(this, `${base}/opensearch/domainArn`);
-    const uploadsKmsKeyArn = readOptional(this, `${base}/kms/uploadsKeyArn`);
-    const manifestKmsKeyArn = readOptional(this, `${base}/kms/manifestKeyArn`);
+    const uploadsBucketName = readDeployTime(this, `${base}/s3/uploadsBucketName`);
+    const manifestBucketName = readDeployTime(this, `${base}/s3/manifestBucketName`);
+    const sqsQueueArn = readDeployTime(this, `${base}/sqs/ssjdispatcherQueueArn`);
+    const esDomainArn = readDeployTime(this, `${base}/opensearch/domainArn`);
+    const uploadsKmsKeyArn = readDeployTime(this, `${base}/kms/uploadsKeyArn`);
+    const manifestKmsKeyArn = readDeployTime(this, `${base}/kms/manifestKeyArn`);
 
-    // ---- Helpers
     const roleName = (svc: string) => `gen3-${project}-${envName}-${slug(svc)}-role`;
 
     const makeIrsaPrincipal = (sa: string) => {
@@ -76,7 +74,6 @@ export class Gen3IamStack extends cdk.Stack {
         },
       });
 
-    // ---- Managed policies
     const managed: Partial<
       Record<
         "S3UploadsRW" | "ManifestRW" | "SqsConsume" | "EsHttp" | "ExternalSecretsRead",
@@ -106,42 +103,39 @@ export class Gen3IamStack extends cdk.Stack {
       ],
     });
 
-    if (uploadsBucketName) {
-      managed.S3UploadsRW = new iam.ManagedPolicy(this, "Gen3S3UploadsRW", {
-        managedPolicyName: `Gen3-${project}-${envName}-S3UploadsRW`,
-        statements: [
-          new iam.PolicyStatement({
-            actions: ["s3:PutObject", "s3:GetObject", "s3:DeleteObject", "s3:AbortMultipartUpload"],
-            resources: [`arn:${cdk.Stack.of(this).partition}:s3:::${uploadsBucketName}/*`],
-            conditions: { Bool: { "aws:SecureTransport": "true" } },
-          }),
-          new iam.PolicyStatement({
-            actions: ["s3:ListBucket"],
-            resources: [`arn:${cdk.Stack.of(this).partition}:s3:::${uploadsBucketName}`],
-            conditions: { StringLike: { "s3:prefix": ["uploads/*", "processed/*"] } },
-          }),
-        ],
-      });
-    }
+    // Token-based values are always "present" to CDK, so gate policy creation with features/config, not truthiness.
+    managed.S3UploadsRW = new iam.ManagedPolicy(this, "Gen3S3UploadsRW", {
+      managedPolicyName: `Gen3-${project}-${envName}-S3UploadsRW`,
+      statements: [
+        new iam.PolicyStatement({
+          actions: ["s3:PutObject", "s3:GetObject", "s3:DeleteObject", "s3:AbortMultipartUpload"],
+          resources: [`arn:${cdk.Stack.of(this).partition}:s3:::${uploadsBucketName}/*`],
+          conditions: { Bool: { "aws:SecureTransport": "true" } },
+        }),
+        new iam.PolicyStatement({
+          actions: ["s3:ListBucket"],
+          resources: [`arn:${cdk.Stack.of(this).partition}:s3:::${uploadsBucketName}`],
+          conditions: { StringLike: { "s3:prefix": ["uploads/*", "processed/*"] } },
+        }),
+      ],
+    });
 
-    if (manifestBucketName) {
-      managed.ManifestRW = new iam.ManagedPolicy(this, "Gen3ManifestRW", {
-        managedPolicyName: `Gen3-${project}-${envName}-ManifestRW`,
-        statements: [
-          new iam.PolicyStatement({
-            actions: ["s3:GetObject", "s3:PutObject"],
-            resources: [`arn:${cdk.Stack.of(this).partition}:s3:::${manifestBucketName}/*`],
-            conditions: { Bool: { "aws:SecureTransport": "true" } },
-          }),
-          new iam.PolicyStatement({
-            actions: ["s3:ListBucket"],
-            resources: [`arn:${cdk.Stack.of(this).partition}:s3:::${manifestBucketName}`],
-          }),
-        ],
-      });
-    }
+    managed.ManifestRW = new iam.ManagedPolicy(this, "Gen3ManifestRW", {
+      managedPolicyName: `Gen3-${project}-${envName}-ManifestRW`,
+      statements: [
+        new iam.PolicyStatement({
+          actions: ["s3:GetObject", "s3:PutObject"],
+          resources: [`arn:${cdk.Stack.of(this).partition}:s3:::${manifestBucketName}/*`],
+          conditions: { Bool: { "aws:SecureTransport": "true" } },
+        }),
+        new iam.PolicyStatement({
+          actions: ["s3:ListBucket"],
+          resources: [`arn:${cdk.Stack.of(this).partition}:s3:::${manifestBucketName}`],
+        }),
+      ],
+    });
 
-    if (sqsQueueArn) {
+    if (features.ssjdispatcherCreds) {
       managed.SqsConsume = new iam.ManagedPolicy(this, "Gen3SqsConsume", {
         managedPolicyName: `Gen3-${project}-${envName}-SqsConsume`,
         statements: [
@@ -160,14 +154,18 @@ export class Gen3IamStack extends cdk.Stack {
       });
     }
 
-    if (esDomainArn) {
+    if (features.metadataG3auto) {
       managed.EsHttp = new iam.ManagedPolicy(this, "Gen3EsHttpAccess", {
         managedPolicyName: `Gen3-${project}-${envName}-EsHttpAccess`,
         statements: [
           new iam.PolicyStatement({
             actions: [
-              "es:ESHttpGet", "es:ESHttpHead", "es:ESHttpPost",
-              "es:ESHttpPut", "es:ESHttpDelete", "es:ESHttpPatch",
+              "es:ESHttpGet",
+              "es:ESHttpHead",
+              "es:ESHttpPost",
+              "es:ESHttpPut",
+              "es:ESHttpDelete",
+              "es:ESHttpPatch",
             ],
             resources: [`${esDomainArn}/*`],
           }),
@@ -179,7 +177,6 @@ export class Gen3IamStack extends cdk.Stack {
       });
     }
 
-    // ---- Role factory
     const mk = (
       svc: string,
       sa: string,
@@ -198,56 +195,62 @@ export class Gen3IamStack extends cdk.Stack {
       return role;
     };
 
-    // ---- Roles
-    if (managed.S3UploadsRW && uploadsBucketName) {
-      const inline: iam.PolicyStatement[] = [];
-      if (uploadsKmsKeyArn) {
-        inline.push(
-          kmsViaS3Stmt(
-            ["kms:Encrypt", "kms:Decrypt", "kms:ReEncrypt*", "kms:GenerateDataKey*", "kms:DescribeKey"],
-            uploadsKmsKeyArn,
-            uploadsBucketName
-          )
-        );
-      }
+    // Fence
+    {
+      const inline: iam.PolicyStatement[] = [
+        kmsViaS3Stmt(
+          ["kms:Encrypt", "kms:Decrypt", "kms:ReEncrypt*", "kms:GenerateDataKey*", "kms:DescribeKey"],
+          uploadsKmsKeyArn,
+          uploadsBucketName
+        ),
+      ];
+
       const fenceRole = mk("fence", "fence-sa", [managed.S3UploadsRW], inline);
       const rolePath = `/gen3/${project}/${envName}/`;
       const selfArnLiteral = `arn:${cdk.Stack.of(this).partition}:iam::${this.account}:role${rolePath}${roleName("fence")}`;
+
       fenceRole.assumeRolePolicy!.addStatements(
         new iam.PolicyStatement({
           effect: iam.Effect.ALLOW,
-          principals: [new iam.ArnPrincipal(selfArnLiteral)],
+          principals: [
+            new iam.ArnPrincipal(
+              `arn:${cdk.Stack.of(this).partition}:iam::${this.account}:root`
+            ),
+          ],
           actions: ["sts:AssumeRole"],
+          conditions: {
+            ArnLike: {
+              "aws:PrincipalArn": `arn:${cdk.Stack.of(this).partition}:iam::${this.account}:role/gen3/${project}/${envName}/${roleName("fence")}`,
+            },
+          },
         })
       );
     }
 
-    if (managed.SqsConsume && managed.S3UploadsRW && uploadsBucketName) {
-      const ssjInline: iam.PolicyStatement[] = [];
-      if (uploadsKmsKeyArn) {
-        ssjInline.push(
-          kmsViaS3Stmt(["kms:Decrypt", "kms:DescribeKey"], uploadsKmsKeyArn, uploadsBucketName)
-        );
-      }
+    // SSJ dispatcher
+    if (features.ssjdispatcherCreds && managed.SqsConsume) {
+      const ssjInline: iam.PolicyStatement[] = [
+        kmsViaS3Stmt(["kms:Decrypt", "kms:DescribeKey"], uploadsKmsKeyArn, uploadsBucketName),
+      ];
+
       mk("ssjdispatcher", "ssjdispatcher-service-account", [managed.SqsConsume, managed.S3UploadsRW], ssjInline);
       mk("ssjdispatcher-job", "ssjdispatcher-job-sa", [managed.SqsConsume, managed.S3UploadsRW], ssjInline);
     }
 
-    if (managed.ManifestRW && manifestBucketName) {
-      const manifestInline: iam.PolicyStatement[] = [];
-      if (manifestKmsKeyArn) {
-        manifestInline.push(
-          kmsViaS3Stmt(
-            ["kms:Encrypt", "kms:ReEncrypt*", "kms:GenerateDataKey*", "kms:DescribeKey"],
-            manifestKmsKeyArn,
-            manifestBucketName
-          )
-        );
-      }
+    // Manifest
+    {
+      const manifestInline: iam.PolicyStatement[] = [
+        kmsViaS3Stmt(
+          ["kms:Encrypt", "kms:ReEncrypt*", "kms:GenerateDataKey*", "kms:DescribeKey"],
+          manifestKmsKeyArn,
+          manifestBucketName
+        ),
+      ];
       mk("manifest", "manifest-service", [managed.ManifestRW], manifestInline);
     }
 
-    if (managed.EsHttp) {
+    // OpenSearch proxy
+    if (features.metadataG3auto && managed.EsHttp) {
       mk("aws-es-proxy", "aws-es-proxy-sa", [managed.EsHttp]);
     }
 
@@ -263,6 +266,7 @@ export class Gen3IamStack extends cdk.Stack {
         }),
       ],
     });
+
     mk("hatchery", "hatchery-service-account", [nfList]);
     mk("external-secrets", "external-secrets-sa", [managed.ExternalSecretsRead]);
   }

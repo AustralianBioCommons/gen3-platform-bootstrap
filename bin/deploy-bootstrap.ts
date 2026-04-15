@@ -5,6 +5,8 @@ import { InfraStack } from "../lib/stacks/infra-stack";
 import { Gen3IamStack } from "../lib/stacks/gen3-iam-stack";
 import { ReplicationStack } from "../lib/stacks/replication-stack";
 import { bucketSafeFromHostname } from "../lib/utils/names";
+import { slug } from "../lib/iam/irsa";
+import { env } from "process";
 
 const app = new cdk.App();
 
@@ -26,6 +28,8 @@ for (const stageConfig of config.stages) {
   const resolved = resolveStageConfig(config, stageConfig);
   const { envTarget, bootstrap } = resolved;
 
+  const envKey = `${slug(config.project)}-${slug(envTarget.name)}`;
+
   const stackEnv = {
     account: envTarget.account,
     region: envTarget.region,
@@ -39,8 +43,10 @@ for (const stageConfig of config.stages) {
     ssmPrefix: config.naming.ssmPrefix,
     secretPrefix: config.naming.secretPrefix,
     envTarget,
+    envKey,
     bootstrap,
   };
+
 
   const infra = new InfraStack(app, `${stageConfig.id}Infra`, stackProps);
 

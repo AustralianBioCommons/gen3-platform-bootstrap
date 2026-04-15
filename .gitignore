@@ -8,3 +8,17 @@ coverage/
 *.tsbuildinfo
 .env
 config/*.local.json
+
+# TypeScript emit currently lands alongside sources
+bin/*.js
+bin/*.d.ts
+bin/*.js.map
+bin/*.d.ts.map
+lib/**/*.js
+lib/**/*.d.ts
+lib/**/*.js.map
+lib/**/*.d.ts.map
+lambda/**/*.js
+lambda/**/*.d.ts
+lambda/**/*.js.map
+lambda/**/*.d.ts.map

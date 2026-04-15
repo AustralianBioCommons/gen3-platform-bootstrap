@@ -133,4 +133,5 @@ export interface BaseNamingProps {
 export interface BootstrapStackProps extends cdk.StackProps, BaseNamingProps {
   envTarget: EnvironmentTarget;
   bootstrap: ResolvedBootstrapConfig;
+  envKey: string;
 }
