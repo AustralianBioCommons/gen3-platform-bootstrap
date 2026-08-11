@@ -96,6 +96,7 @@ function resolveBootstrapConfig(
     replication: resolveReplicationConfig(b, b.hostname),
     clusterInfoSsmPrefix:
       b.clusterInfoSsmPrefix ?? `/gen3/${slug(project)}-${slug(envName)}`,
+      searchDomainArnSsmPath: b.searchDomainArnSsmPath ?? `/gen3/${slug(project)}-${slug(envName)}/searchDomainArn`,
   };
 }
 

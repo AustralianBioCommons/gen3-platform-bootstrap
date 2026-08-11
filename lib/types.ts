@@ -53,6 +53,7 @@ export interface BootstrapConfig {
   features?: FeaturesConfig;
   secrets?: SecretsConfig;
   clusterInfoSsmPrefix?: string;   // optional; see JSDoc
+  searchDomainArnSsmPath?: string;  // optional; see JSDoc
 }
 
 export interface ReplicationConfig {
@@ -101,6 +102,7 @@ export interface ResolvedBootstrapConfig {
   secrets: ResolvedSecretsConfig;
   replication: ResolvedReplicationConfig;
   clusterInfoSsmPrefix: string;
+  searchDomainArnSsmPath: string;
 }
 
 export interface ResolvedSecretsConfig {
