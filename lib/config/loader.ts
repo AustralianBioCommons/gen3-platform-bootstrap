@@ -11,6 +11,7 @@ import {
   StageConfig,
 } from "../types";
 import { validateConfig } from "./schema";
+import { slug } from "../iam/irsa";
 
 export function loadAppConfig(configPath: string): AppConfig {
   const absolutePath = path.resolve(configPath);
@@ -93,6 +94,8 @@ function resolveBootstrapConfig(
     },
     secrets: resolveSecretsConfig(b, project, envName),
     replication: resolveReplicationConfig(b, b.hostname),
+    clusterInfoSsmPrefix:
+      b.clusterInfoSsmPrefix ?? `/gen3/${slug(project)}-${slug(envName)}`,
   };
 }
 

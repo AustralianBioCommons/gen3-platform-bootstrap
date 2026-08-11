@@ -52,6 +52,7 @@ export interface BootstrapConfig {
   replication?: ReplicationConfig;
   features?: FeaturesConfig;
   secrets?: SecretsConfig;
+  clusterInfoSsmPrefix?: string;   // optional; see JSDoc
 }
 
 export interface ReplicationConfig {
@@ -99,6 +100,7 @@ export interface ResolvedBootstrapConfig {
   features: Required<FeaturesConfig>;
   secrets: ResolvedSecretsConfig;
   replication: ResolvedReplicationConfig;
+  clusterInfoSsmPrefix: string;
 }
 
 export interface ResolvedSecretsConfig {

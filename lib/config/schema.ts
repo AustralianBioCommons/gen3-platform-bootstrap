@@ -20,6 +20,14 @@ export function validateConfig(config: AppConfig): void {
     if (!stage.id) throw new Error("each stage requires id");
     if (!stage.stageName) throw new Error(`stage ${stage.id}: stageName is required`);
     if (!stage.envKey) throw new Error(`stage ${stage.id}: envKey is required`);
+    if (
+        stage.bootstrap.clusterInfoSsmPrefix !== undefined &&
+        !stage.bootstrap.clusterInfoSsmPrefix.startsWith("/")
+      ) {
+        throw new Error(
+          `stage ${stage.id}: bootstrap.clusterInfoSsmPrefix must be an absolute SSM path (start with '/')`
+        );
+      }
 
     if (!config.environments[stage.envKey]) {
       throw new Error(

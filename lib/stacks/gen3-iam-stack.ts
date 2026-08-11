@@ -16,7 +16,7 @@ export class Gen3IamStack extends cdk.Stack {
     if (!hostname) throw new Error("Gen3IamStack: bootstrap.hostname is required");
     if (!namespace) throw new Error("Gen3IamStack: bootstrap.namespace is required");
 
-    const base = `/gen3/${props.envKey}`;
+    const base = props.bootstrap.clusterInfoSsmPrefix;   // was `/gen3/${props.envKey}`
 
     // Deploy-time SSM resolution
     const issuer = readDeployTime(this, `${base}/oidcIssuer`);
